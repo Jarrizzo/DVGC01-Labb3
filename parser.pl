@@ -19,24 +19,20 @@ restsent(_, C, [W1 | Ws ]) :- readword(C, W1, C1), restsent(W1, C1, Ws).
 /* and remembering what character came after the word (NB!)                   */
 /******************************************************************************/
 
-readword(C, W, _)  :- C = -1, W = C.                    /* added EOF handling */
-readword(C, W, C1) :- single_character( C ), name(W, [C]), get0(C1).
-readword(C, W, C2) :-
-   in_word(C, NewC ),
-   get0(C1),
-   restword(C1, Cs, C2),
-   name(W, [NewC|Cs]).
+readword(C, W, _)  :- C = -1, W = C.                    
+
 readword(C, W, C2) :- C = 58, get0(C1), readwordaux(C, W, C1, C2).
+readword(C, W, C2) :- C > 47, C < 58, name(W, [C]), get0(C2).
+readword(C, W, C2) :- in_word(C, NewC ), get0(C1), restword(C1, Cs, C2), name(W, [NewC|Cs]).
+
+readword(C, W, C1) :- single_character( C ), name(W, [C]), get0(C1).  
+
 readword(_, W, C2) :- get0(C1), readword(C1, W, C2).
 
-readwordaux(C, W, C1, C2) :- C1 = 61, name(W, [C, C1]), get0(C2).
-readwordaux(C, W, C1, C2) :- C1 \= 61, name(W, [C]), C1 = C2.
+readwordaux(C, W, C1, C2) :- C1 = 61, name(W, [C, C1]), get0(C2).   /* Next is = -> := */
+readwordaux(C, W, C1, C2) :- C1 \= 61, name(W, [C]), C1 = C2.       /* Next not = -> : */
 
-restword(C, [NewC|Cs], C2) :-
-   in_word(C, NewC),
-   get0(C1),
-   restword(C1, Cs, C2).
-
+restword(C, [NewC|Cs], C2) :- in_word(C, NewC),get0(C1),restword(C1, Cs, C2).
 restword(C, [ ], C).
 
 /******************************************************************************/
@@ -52,6 +48,7 @@ single_character(59).                  /* ; */
 single_character(58).                  /* : */
 single_character(61).                  /* = */
 single_character(46).                  /* . */
+single_character(45).                  /* - */
 
 /******************************************************************************/
 /* These characters can appear within a word.                                 */
@@ -92,7 +89,7 @@ testread([H|T]) :- nl, write('Testing C&M Reader, input file: '), write(H), nl,
 lexer([ ], [ ]).
 lexer([H|T], [F|S]) :-match(H, F), lexer(T,S).
 
-match(L, F) :- L =  'program',   F is 256.
+match(L, F) :- L = 'program',   F is 256.
 match(L,F) :- L =  'input',     F is 257.
 match(L,F) :- L =  'output',    F is 258.
 match(L,F) :- L =  'var',       F is 259.
@@ -101,7 +98,6 @@ match(L,F) :- L =  'begin',     F is 261.
 match(L,F) :- L =  'end',       F is 262.
 match(L,F) :- L =  'boolean',   F is 263.
 match(L,F) :- L =  'real',      F is 264.
-match(L, F) :- L =  ':=',        F is 271.
 
 match(L, F) :- L = '(',          F is 40.
 match(L, F) :- L = ')',          F is 41.
@@ -111,11 +107,12 @@ match(L, F) :- L = ',',          F is 44.
 match(L, F) :- L = '.',          F is 46.
 match(L, F) :- L = ':',          F is 58.
 match(L, F) :- L = ';',          F is 59.
+match(L, F) :- L = ':=',         F is 271.
 
 match(L, F) :- name(L, [T|S]), char_type(T, alpha), match_id(S), F is 270.
 match(L, F) :- name(L, [T|S]), char_type(T, digit), match_digit(S), F is 272.
-match(L, F) :- char_type(L,ascii),          F is 273.
 match(L, F) :- char_type(L,end_of_file),    F is 275.
+match(L, F) :- char_type(L,ascii),          F is 273.
 
 match_digit([ ]).
 match_digit([H|T]) :- char_type(H, digit), match_digit(T).
@@ -166,28 +163,28 @@ prog    --> prog_head,var_part,stat_part.
 /* Program Header                                                             */
 /******************************************************************************/
 
-prog_head   --> program,id,openp,input,output,closep,scolon.
+prog_head   --> program,id,openp,input,comma,output,closep,scolon.
 
 /******************************************************************************/
 /* Var_part                                                                   */
 /******************************************************************************/
 
 var_part        --> var,var_dec_list.
-var_dec_list    --> var_dec | var_dec_list,var_dec.
-var_dec         --> id_list,colon,type,scolon.
-id_list         --> id | id_list,id.
-type            --> integer | real | boolean.
+var_dec_list    --> var_dec | var_dec,var_dec_list.
+var_dec         --> id_list,colon,typ,scolon.
+id_list         --> id | id,comma,id_list.
+typ             --> integer | real | boolean.
 
 /******************************************************************************/
 /* Stat part                                                                  */
 /******************************************************************************/
 
-stat_part       --> begin, stat_list, end.
-stat_list       --> stat| stat, scolon, stat_list.
+stat_part       --> begin, stat_list, end,fstop.
+stat_list       --> stat | stat, scolon, stat_list.
 stat            --> assign_stat.
 assign_stat     --> id, assign, expr.
-expr            --> term | expr, plus, term.
-term            --> factor | term, mult, factor.
+expr            --> term | term, plus, expr.
+term            --> factor | factor, mult, term.
 factor          --> openp, expr, closep | operand.
 operand         --> id | number.
 
@@ -202,7 +199,7 @@ parseFiles([H|T]) :-
     nl, read_in(H,L), lexer(L, Tokens), write(L), 
     nl, write(Tokens), 
     nl, parser(Tokens, _), 
-    nl, write(H), write(' End of parse'), 
+    nl, write(H), write(' end of parse'), 
     nl, 
     nl, parseFiles(T).
 
@@ -212,24 +209,24 @@ parseFiles([H|T]) :-
 
 
 parseok :- parseFiles([  'testfiles/testok1.pas',   'testfiles/testok2.pas',   'testfiles/testok3.pas',
-                              'testfiles/testok4.pas',   'testfiles/testok5.pas',   'testfiles/testok6.pas',    
-                              'testfiles/testok7.pas']).
+                         'testfiles/testok4.pas',   'testfiles/testok5.pas',   'testfiles/testok6.pas',    
+                         'testfiles/testok7.pas']).
 
-parseaz :- parseFiles([  'testfiles/testa.pas',     'testfiles/testb.pas',     'testfiles/testc.pas',
-                              'testfiles/testd.pas',     'testfiles/teste.pas',     'testfiles/testf.pas',
-                              'testfiles/testg.pas',     'testfiles/testh.pas',     'testfiles/testi.pas',      
-                              'testfiles/testj.pas',     'testfiles/testk.pas',     'testfiles/testl.pas',    
-                              'testfiles/testm.pas',     'testfiles/testn.pas',     'testfiles/testo.pas',  
-                              'testfiles/testp.pas',     'testfiles/testq.pas',     'testfiles/testr.pas',      
-                              'testfiles/tests.pas',     'testfiles/testt.pas',     'testfiles/testu.pas',
-                              'testfiles/testv.pas',     'testfiles/testw.pas',     'testfiles/testx.pas',      
-                              'testfiles/testy.pas',     'testfiles/testz.pas']).                        
+parseaz :- parseFiles([ 'testfiles/testa.pas',     'testfiles/testb.pas',     'testfiles/testc.pas',
+                        'testfiles/testd.pas',     'testfiles/teste.pas',     'testfiles/testf.pas',
+                        'testfiles/testg.pas',     'testfiles/testh.pas',     'testfiles/testi.pas',      
+                        'testfiles/testj.pas',     'testfiles/testk.pas',     'testfiles/testl.pas',    
+                        'testfiles/testm.pas',     'testfiles/testn.pas',     'testfiles/testo.pas',  
+                        'testfiles/testp.pas',     'testfiles/testq.pas',     'testfiles/testr.pas',      
+                        'testfiles/tests.pas',     'testfiles/testt.pas',     'testfiles/testu.pas',
+                        'testfiles/testv.pas',     'testfiles/testw.pas',     'testfiles/testx.pas',      
+                        'testfiles/testy.pas',     'testfiles/testz.pas']).                        
 
 parsefun :- parseFiles([ 'testfiles/fun1.pas',      'testfiles/fun2.pas',      'testfiles/fun3.pas',
-                              'testfiles/fun4.pas',      'testfiles/fun5.pas']).
+                         'testfiles/fun4.pas',      'testfiles/fun5.pas']).
 
 parsesem :- parseFiles([ 'testfiles/sem1.pas',      'testfiles/sem2.pas',      'testfiles/sem3.pas',
-                              'testfiles/sem4.pas',      'testfiles/sem5.pas']).
+                         'testfiles/sem4.pas',      'testfiles/sem5.pas']).
 
 testall :-  tell('parser.out'), write('Testing OK programs '), nl, 
             nl, parseok,
